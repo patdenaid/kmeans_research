@@ -1,0 +1,9 @@
+=== ПІДСУМОК (CLEAN) ===
+Файл: C:/Users/pat_den1ad/PycharmProjects/Petya_diplom/images\4.2.07.tiff
+Розмір: 512x512
+orig_file_bytes: 786572
+orig_png_bytes:  526799
+K: [4, 8, 16, 32, 64]
+Оптимальне K (Elbow): 16
+Оптимальне K (Silhouette): 4
+Примітка: CR_actual_vs_orig_png (PNG vs PNG) — рекомендоване порівняння.

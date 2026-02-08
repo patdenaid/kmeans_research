@@ -1,0 +1,9 @@
+=== ПІДСУМОК (NOISE sigma=20) ===
+Базовий файл: C:/Users/pat_den1ad/PycharmProjects/Petya_diplom/images\4.2.03.tiff
+Розмір: 512x512
+orig_png_bytes:  634590
+noisy_png_bytes: 714149
+K: [4, 8, 16, 32, 64]
+Оптимальне K (Elbow): 16
+Оптимальне K (Silhouette): 4
+PSNR/SSIM пораховані відносно ОРИГІНАЛУ (clean), що дозволяє оцінити вплив шуму.

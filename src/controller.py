@@ -1,6 +1,3 @@
-# controller.py
-# Контролер для GUI: запускає експерименти з diploma_kmeans_research.py
-# Працює у фоні (thread), щоб GUI не зависав.
 
 from __future__ import annotations
 import os
@@ -9,15 +6,12 @@ import traceback
 from dataclasses import dataclass
 from typing import Callable, List, Optional, Dict
 
-# Імпорт функцій з твого дослідницького файлу
-# Переконайся, що diploma_kmeans_research.py лежить в тій же папці (src/)
 from diploma_kmeans_research import (
     list_images,
     process_one_image,
     write_global_csv,
     plot_global_summary,
 )
-
 
 LogFn = Callable[[str], None]
 DoneFn = Callable[[bool, str], None]
@@ -35,9 +29,6 @@ class RunConfig:
 
 
 def parse_int_list(s: str) -> List[int]:
-    """
-    Парсить рядок типу "4,8,16,32,64" -> [4,8,16,32,64]
-    """
     items = []
     for part in s.split(","):
         part = part.strip()
@@ -49,9 +40,6 @@ def parse_int_list(s: str) -> List[int]:
 
 
 def parse_float_list(s: str) -> List[float]:
-    """
-    Парсить рядок типу "5,10,15,20,30" -> [5.0,10.0,15.0,20.0,30.0]
-    """
     items = []
     for part in s.split(","):
         part = part.strip()
@@ -78,10 +66,6 @@ def validate_config(cfg: RunConfig) -> None:
 
 
 class ResearchController:
-    """
-    Запускає експерименти у фоні.
-    """
-
     def __init__(self) -> None:
         self._thread: Optional[threading.Thread] = None
         self._stop_flag = threading.Event()

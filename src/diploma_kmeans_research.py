@@ -1,21 +1,10 @@
-# diploma_kmeans_research.py
-# Дослідження стиснення зображень методом кластеризації K-means
-# Метрики: CR (теоретичний і фактичний), PSNR, SSIM
-# Оптимальне K: Elbow method, Silhouette Coefficient
-# Дослідження стійкості до шуму: AWGN (білий гаусівський) sigma = 5,10,15,20,30
-#
-# Запуск:
-#   python diploma_kmeans_research.py --input-dir images --output-dir out --ks 4,8,16,32,64
-#
-# Залежності:
-#   pip install numpy pillow scikit-learn scikit-image matplotlib
 
 from __future__ import annotations
 import argparse
 import csv
 import os
-from dataclasses import dataclass
 from typing import List, Tuple, Dict, Optional
+from collections import defaultdict
 
 import numpy as np
 from PIL import Image
@@ -28,9 +17,6 @@ from skimage.metrics import structural_similarity as ssim_metric
 import matplotlib.pyplot as plt
 
 
-# -----------------------------
-# Утиліти вводу/виводу
-# -----------------------------
 
 def load_rgb(path: str) -> np.ndarray:
     """Завантаження зображення як RGB uint8 (H, W, 3)."""
@@ -39,7 +25,6 @@ def load_rgb(path: str) -> np.ndarray:
 
 
 def save_rgb(arr: np.ndarray, path: str) -> None:
-    """Збереження RGB uint8 (H, W, 3)."""
     os.makedirs(os.path.dirname(path), exist_ok=True)
     Image.fromarray(arr.astype(np.uint8), mode="RGB").save(path)
 
@@ -48,12 +33,8 @@ def file_size_bytes(path: str) -> int:
     return int(os.path.getsize(path))
 
 
-# -----------------------------
-# Метрики якості
-# -----------------------------
 
 def mse_psnr(orig: np.ndarray, comp: np.ndarray) -> Tuple[float, float]:
-    """MSE і PSNR (дБ) для 8-бітного RGB."""
     o = orig.astype(np.float32)
     c = comp.astype(np.float32)
     mse = float(np.mean((o - c) ** 2))
@@ -65,19 +46,12 @@ def mse_psnr(orig: np.ndarray, comp: np.ndarray) -> Tuple[float, float]:
 
 
 def ssim_rgb(orig: np.ndarray, comp: np.ndarray) -> float:
-    """SSIM для RGB (враховує візуальну якість)."""
     return float(ssim_metric(orig, comp, channel_axis=2, data_range=255))
 
 
-# -----------------------------
-# Шум
-# -----------------------------
 
 def add_awgn(img: np.ndarray, sigma: float, seed: int = 42) -> np.ndarray:
-    """
-    Адитивний білий гаусівський шум N(0, sigma^2) для RGB.
-    sigma у шкалі 0..255.
-    """
+
     rng = np.random.default_rng(seed)
     noise = rng.normal(0.0, sigma, size=img.shape).astype(np.float32)
     noisy = img.astype(np.float32) + noise
@@ -85,19 +59,9 @@ def add_awgn(img: np.ndarray, sigma: float, seed: int = 42) -> np.ndarray:
     return noisy
 
 
-# -----------------------------
-# Теоретичний CR
-# -----------------------------
 
 def compression_ratio_theoretical(h: int, w: int, k: int) -> float:
-    """
-    Теоретичний CR без урахування конкретного формату файлу:
-    Оригінал: 24 біт/піксель.
-    Після квантування:
-      - індекс кластера: ceil(log2(K)) біт/піксель
-      - палітра: K*24 біт
-    CR = original_bits / compressed_bits
-    """
+
     n = h * w
     original_bits = n * 24
     index_bits = int(np.ceil(np.log2(max(k, 2))))
@@ -105,9 +69,6 @@ def compression_ratio_theoretical(h: int, w: int, k: int) -> float:
     return float(original_bits / compressed_bits)
 
 
-# -----------------------------
-# K-means стиснення
-# -----------------------------
 
 def kmeans_compress(
     img: np.ndarray,
@@ -117,12 +78,7 @@ def kmeans_compress(
     n_init: int = 10,
     sample_pixels: Optional[int] = 50000,
 ) -> Tuple[np.ndarray, float]:
-    """
-    Стиснення через K-means (квантування кольорів).
-    Для швидкості KMeans навчається на підвибірці пікселів (sample_pixels),
-    але центри застосовуються до всіх пікселів.
-    Повертає: (стиснене зображення, inertia)
-    """
+
     h, w, c = img.shape
     if c != 3:
         raise ValueError("Очікується RGB (3 канали).")
@@ -158,15 +114,9 @@ def kmeans_compress(
     return comp, float(model.inertia_)
 
 
-# -----------------------------
-# Оптимальне K: Elbow і Silhouette
-# -----------------------------
 
 def choose_k_elbow(ks: List[int], inertias: List[float]) -> int:
-    """
-    Автовибір K методом ліктя:
-    максимальна перпендикулярна відстань до прямої між першою і останньою точками.
-    """
+
     x = np.array(ks, dtype=np.float64)
     y = np.array(inertias, dtype=np.float64)
 
@@ -204,9 +154,44 @@ def plot_curve(x: List[int], y: List[float], title: str, xlabel: str, ylabel: st
     plt.close()
 
 
-# -----------------------------
-# Оцінка для списку K (inertia, silhouette, метрики)
-# -----------------------------
+def plot_dependencies_per_image(results: List[Dict], ks: List[int], out_dir: str, title_prefix: str) -> None:
+
+    psnr = [float(r.get("psnr_db_vs_original", np.nan)) for r in results]
+    ssim_vals = [float(r.get("ssim_vs_original", np.nan)) for r in results]
+
+    cr_vals = []
+    for r in results:
+        cr = r.get("cr_actual_vs_orig_png", np.nan)
+        try:
+            cr_vals.append(float(cr))
+        except Exception:
+            cr_vals.append(np.nan)
+
+    plot_curve(
+        ks, psnr,
+        title=f"{title_prefix}: PSNR vs K",
+        xlabel="K",
+        ylabel="PSNR (dB)",
+        out_path=os.path.join(out_dir, f"{title_prefix}_psnr_vs_k.png"),
+    )
+
+    plot_curve(
+        ks, ssim_vals,
+        title=f"{title_prefix}: SSIM vs K",
+        xlabel="K",
+        ylabel="SSIM",
+        out_path=os.path.join(out_dir, f"{title_prefix}_ssim_vs_k.png"),
+    )
+
+    plot_curve(
+        ks, cr_vals,
+        title=f"{title_prefix}: CR vs K",
+        xlabel="K",
+        ylabel="Compression Ratio (PNG vs PNG)",
+        out_path=os.path.join(out_dir, f"{title_prefix}_cr_vs_k.png"),
+    )
+
+
 
 def evaluate_for_k_list(
     orig_img: np.ndarray,
@@ -220,17 +205,17 @@ def evaluate_for_k_list(
     save_each_k_png: bool = True,
 ) -> Tuple[List[Dict], List[float], List[float]]:
     """
-    orig_img: оригінал (без шуму) — для PSNR/SSIM з оригіналом (за потреби)
-    work_img: те, що стискаємо (або чисте, або зашумлене)
-    ref_bytes_for_cr: з чим порівнюємо CR за байтами (orig файл або orig_png тощо)
+    orig_img: оригінал (clean) — для PSNR/SSIM відносно оригіналу
+    work_img: те, що стискаємо (clean або noisy)
+    ref_bytes_for_cr: база для CR_actual_bytes (ref_bytes / compressed_png_bytes)
 
     Повертає:
-      results: список рядків для CSV (включно з CR фактичним)
+      results: рядки для CSV
       inertias, silhouettes: для графіків і вибору K
     """
     h, w, _ = work_img.shape
 
-    # Підвибірка для silhouette
+    # Підвибірка для silhouette (щоб швидко)
     pixels = work_img.reshape(-1, 3).astype(np.float32)
     n = pixels.shape[0]
     sil_sample = min(10000, n)
@@ -238,39 +223,32 @@ def evaluate_for_k_list(
     sil_idx = rng.choice(n, size=sil_sample, replace=False)
     sil_pixels = pixels[sil_idx]
 
-    results = []
-    inertias = []
-    silhouettes = []
+    results: List[Dict] = []
+    inertias: List[float] = []
+    silhouettes: List[float] = []
 
     for k in ks:
         comp, inertia = kmeans_compress(work_img, k=k, seed=seed, sample_pixels=sample_pixels)
 
-        # Якість відносно "бази":
-        # - якщо work_img == orig_img (clean): метрики якості = між orig і comp
-        # - якщо work_img noisy: метрики якості можна рахувати по-різному.
-        #   Для диплома логічно оцінювати: (orig_img vs comp_noisy_k) — наскільки відновили "структуру".
         mse, psnr = mse_psnr(orig_img, comp)
         ssim_val = ssim_rgb(orig_img, comp)
 
         cr_theor = compression_ratio_theoretical(h, w, k)
 
-        # silhouette на підвибірці
         model = KMeans(n_clusters=k, random_state=seed, n_init=10, max_iter=300, algorithm="lloyd")
         model.fit(sil_pixels)
         sil = float(silhouette_score(sil_pixels, model.labels_))
 
-        # Збереження стисненого зображення і фактичний CR (за байтами)
         out_png_path = os.path.join(out_dir, f"{prefix}_k{k}.png")
         if save_each_k_png:
             save_rgb(comp, out_png_path)
         comp_bytes = file_size_bytes(out_png_path) if save_each_k_png else 0
-
         cr_actual = (ref_bytes_for_cr / comp_bytes) if (save_each_k_png and comp_bytes > 0) else float("nan")
 
         results.append({
             "k": int(k),
-            "cr_theoretical": cr_theor,
-            "cr_actual_bytes": cr_actual,
+            "cr_theoretical": float(cr_theor),
+            "cr_actual_bytes": float(cr_actual),
             "ref_bytes": int(ref_bytes_for_cr),
             "compressed_png_bytes": int(comp_bytes),
             "mse_vs_original": float(mse),
@@ -285,9 +263,6 @@ def evaluate_for_k_list(
     return results, inertias, silhouettes
 
 
-# -----------------------------
-# Головна обробка одного зображення
-# -----------------------------
 
 def process_one_image(
     img_path: str,
@@ -302,30 +277,18 @@ def process_one_image(
     img = load_rgb(img_path)
     h, w, _ = img.shape
 
-    # Папки
     base_dir = os.path.join(out_root, name)
     clean_dir = os.path.join(base_dir, "clean")
     noise_root = os.path.join(base_dir, "noise")
     os.makedirs(clean_dir, exist_ok=True)
     os.makedirs(noise_root, exist_ok=True)
 
-    # --- Еталонні байти для CR ---
-    # 1) Розмір оригінального файлу (як є)
     orig_bytes = file_size_bytes(img_path)
 
-    # 2) Додатково збережемо "оригінал як PNG" для чеснішого порівняння (PNG vs PNG)
     orig_png_path = os.path.join(clean_dir, f"{name}_original_as_png.png")
     save_rgb(img, orig_png_path)
     orig_png_bytes = file_size_bytes(orig_png_path)
 
-    # ---------------- CLEAN ----------------
-    # Будемо рахувати CR фактичний двома способами:
-    # - CR_actual_vs_origfile = orig_bytes / comp_png_bytes
-    # - CR_actual_vs_orignpng = orig_png_bytes / comp_png_bytes  (рекомендовано для однакового формату)
-    #
-    # Для зручності зробимо два набори результатів, але в глобальну таблицю запишемо ОБИДВА.
-
-    # 1) Відносно orig file bytes
     results_clean, inertias, silhouettes = evaluate_for_k_list(
         orig_img=img,
         work_img=img,
@@ -334,13 +297,13 @@ def process_one_image(
         sample_pixels=sample_pixels,
         out_dir=clean_dir,
         prefix=f"{name}_clean",
-        ref_bytes_for_cr=orig_bytes,
+        ref_bytes_for_cr=orig_bytes,  # ref для cr_actual_bytes
         save_each_k_png=True,
     )
+
     k_elbow = choose_k_elbow(ks, inertias)
     k_sil = choose_k_silhouette(ks, silhouettes)
 
-    # Порахувати CR_actual_vs_orignpng (png vs png): для цього просто перераховуємо з уже збережених файлів
     for r in results_clean:
         k = r["k"]
         comp_path = os.path.join(clean_dir, f"{name}_clean_k{k}.png")
@@ -355,7 +318,6 @@ def process_one_image(
         r["height"] = h
         r["k_elbow"] = k_elbow
         r["k_silhouette_best"] = k_sil
-
         global_rows.append(r)
 
     # CSV clean
@@ -373,11 +335,9 @@ def process_one_image(
         wri = csv.DictWriter(f, fieldnames=fieldnames)
         wri.writeheader()
         for r in results_clean:
-            # доповнимо рядок потрібними полями, якщо чогось немає
-            row = {k2: r.get(k2, "") for k2 in fieldnames}
-            wri.writerow(row)
+            wri.writerow({k2: r.get(k2, "") for k2 in fieldnames})
 
-    # Графіки clean
+    # Графіки clean: elbow + silhouette
     plot_curve(ks, inertias,
                title=f"{name}: Elbow method (Inertia vs K) [clean]",
                xlabel="K", ylabel="Inertia",
@@ -387,7 +347,13 @@ def process_one_image(
                xlabel="K", ylabel="Silhouette",
                out_path=os.path.join(clean_dir, f"{name}_silhouette_clean.png"))
 
-    # Summary clean
+    plot_dependencies_per_image(
+        results_clean,
+        ks,
+        clean_dir,
+        title_prefix=f"{name}_clean"
+    )
+
     with open(os.path.join(clean_dir, f"{name}_clean_summary.txt"), "w", encoding="utf-8") as f:
         f.write("=== ПІДСУМОК (CLEAN) ===\n")
         f.write(f"Файл: {img_path}\n")
@@ -399,7 +365,6 @@ def process_one_image(
         f.write(f"Оптимальне K (Silhouette): {k_sil}\n")
         f.write("Примітка: CR_actual_vs_orig_png (PNG vs PNG) — рекомендоване порівняння.\n")
 
-    # ---------------- NOISE ----------------
     for sigma in sigmas:
         sigma_i = int(sigma)
         sigma_dir = os.path.join(noise_root, f"sigma_{sigma_i}")
@@ -408,36 +373,28 @@ def process_one_image(
         noisy = add_awgn(img, sigma=float(sigma), seed=seed)
         noisy_path = os.path.join(sigma_dir, f"{name}_noisy_sigma{sigma_i}.png")
         save_rgb(noisy, noisy_path)
-
-        # Для фактичного CR за байтами:
-        # зашумлений "вхід" можна рахувати двома способами:
-        # 1) порівняння відносно ОРИГІНАЛУ (часто так і роблять, щоб показати кінцеву якість/стиснення відносно базового)
-        # 2) порівняння відносно NOISY PNG (скільки стискаємо саме зашумлене)
-        #
-        # Зробимо обидва. Спочатку ref = orig_png_bytes (база), і додатково перерахуємо для noisy_bytes.
-
         noisy_bytes = file_size_bytes(noisy_path)
 
         results_noisy, inertias_n, silhouettes_n = evaluate_for_k_list(
-            orig_img=img,          # оцінка якості ВІДНОСНО ОРИГІНАЛУ (як у дослідженнях)
+            orig_img=img,          # метрики якості відносно ОРИГІНАЛУ
             work_img=noisy,        # стискаємо зашумлене
             ks=ks,
             seed=seed,
             sample_pixels=sample_pixels,
             out_dir=sigma_dir,
             prefix=f"{name}_noisy_sigma{sigma_i}",
-            ref_bytes_for_cr=orig_png_bytes,  # базовий CR: відносно orig_png
+            ref_bytes_for_cr=orig_png_bytes,  # базовий CR_actual_bytes відносно orig_png_bytes
             save_each_k_png=True,
         )
 
         k_elbow_n = choose_k_elbow(ks, inertias_n)
         k_sil_n = choose_k_silhouette(ks, silhouettes_n)
 
-        # доповнення полів + додатковий CR відносно noisy png
         for r in results_noisy:
             k = r["k"]
             comp_path = os.path.join(sigma_dir, f"{name}_noisy_sigma{sigma_i}_k{k}.png")
             comp_bytes = file_size_bytes(comp_path)
+
             r["cr_actual_vs_orig_png"] = (orig_png_bytes / comp_bytes) if comp_bytes > 0 else float("nan")
             r["cr_actual_vs_noisy_png"] = (noisy_bytes / comp_bytes) if comp_bytes > 0 else float("nan")
 
@@ -469,10 +426,9 @@ def process_one_image(
             wri = csv.DictWriter(f, fieldnames=fieldnames)
             wri.writeheader()
             for r in results_noisy:
-                row = {k2: r.get(k2, "") for k2 in fieldnames}
-                wri.writerow(row)
+                wri.writerow({k2: r.get(k2, "") for k2 in fieldnames})
 
-        # Графіки noisy
+        # Графіки noisy: elbow + silhouette
         plot_curve(ks, inertias_n,
                    title=f"{name}: Elbow (Inertia vs K) [sigma={sigma_i}]",
                    xlabel="K", ylabel="Inertia",
@@ -481,6 +437,13 @@ def process_one_image(
                    title=f"{name}: Silhouette vs K [sigma={sigma_i}]",
                    xlabel="K", ylabel="Silhouette",
                    out_path=os.path.join(sigma_dir, f"{name}_silhouette_sigma{sigma_i}.png"))
+
+        plot_dependencies_per_image(
+            results_noisy,
+            ks,
+            sigma_dir,
+            title_prefix=f"{name}_sigma{sigma_i}"
+        )
 
         # Summary noisy
         with open(os.path.join(sigma_dir, f"{name}_noisy_sigma{sigma_i}_summary.txt"), "w", encoding="utf-8") as f:
@@ -501,7 +464,7 @@ def process_one_image(
 
 def list_images(input_dir: str) -> List[str]:
     exts = {".png", ".jpg", ".jpeg", ".bmp", ".tif", ".tiff"}
-    paths = []
+    paths: List[str] = []
     for fn in os.listdir(input_dir):
         p = os.path.join(input_dir, fn)
         if os.path.isfile(p) and os.path.splitext(fn.lower())[1] in exts:
@@ -527,20 +490,15 @@ def write_global_csv(global_rows: List[Dict], out_path: str) -> None:
         wri = csv.DictWriter(f, fieldnames=fieldnames)
         wri.writeheader()
         for r in global_rows:
-            row = {k2: r.get(k2, "") for k2 in fieldnames}
-            wri.writerow(row)
+            wri.writerow({k2: r.get(k2, "") for k2 in fieldnames})
 
 
 def plot_global_summary(global_rows: List[Dict], out_dir: str) -> None:
 
     os.makedirs(out_dir, exist_ok=True)
 
-    # Групуємо за (mode,sigma,k) середні PSNR/SSIM
-    # mode: clean/noise
-    from collections import defaultdict
-
-    psnr_map = defaultdict(list)
-    ssim_map = defaultdict(list)
+    psnr_map: Dict[tuple, List[float]] = defaultdict(list)
+    ssim_map: Dict[tuple, List[float]] = defaultdict(list)
 
     for r in global_rows:
         mode = r.get("mode", "")
@@ -555,12 +513,9 @@ def plot_global_summary(global_rows: List[Dict], out_dir: str) -> None:
         if np.isfinite(ssimv):
             ssim_map[key].append(ssimv)
 
-    # Витягнемо всі k
     ks = sorted({int(r.get("k")) for r in global_rows if r.get("k") is not None})
 
-    # Для clean
     for mode, sigma in sorted({(r.get("mode",""), int(r.get("sigma",0) or 0)) for r in global_rows}):
-        # зберемо серію по k
         psnr_series = []
         ssim_series = []
         for k in ks:
@@ -587,7 +542,7 @@ def main():
     parser = argparse.ArgumentParser(
         description="Дослідження стиснення K-means (CR, PSNR, SSIM, Elbow, Silhouette, AWGN)."
     )
-    parser.add_argument("--input-dir", required=True, help="Папка з тестовими зображеннями (Lena, House, Mandrill, Airplane, Peppers тощо).")
+    parser.add_argument("--input-dir", required=True, help="Папка з тестовими зображеннями (Lena, House, Mandrill, Airplane, Peppers).")
     parser.add_argument("--output-dir", default="out", help="Папка результатів.")
     parser.add_argument("--ks", default="4,8,16,32,64", help="Список K через кому.")
     parser.add_argument("--sigmas", default="5,10,15,20,30", help="Sigma шуму через кому (СКВ).")
@@ -631,12 +586,10 @@ def main():
             global_rows=global_rows,
         )
 
-    # Зведений CSV по всьому експерименту
     global_csv = os.path.join(args.output_dir, "GLOBAL_RESULTS.csv")
     write_global_csv(global_rows, global_csv)
     print("\nЗведений CSV:", global_csv)
 
-    # Зведені графіки (опційно)
     if args.make_global_plots:
         global_plot_dir = os.path.join(args.output_dir, "GLOBAL_PLOTS")
         plot_global_summary(global_rows, global_plot_dir)

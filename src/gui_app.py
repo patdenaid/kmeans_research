@@ -1,5 +1,6 @@
 # gui_app.py
 # Графічний застосунок (Tkinter) для запуску дослідження K-means стиснення.
+#
 # Запуск:
 #   python gui_app.py
 #
@@ -31,41 +32,33 @@ class App(tk.Tk):
         self._build_ui()
         self._poll_ui_queue()
 
-    # ---------------- UI ----------------
-
     def _build_ui(self):
         pad = {"padx": 10, "pady": 6}
 
         root = ttk.Frame(self)
         root.pack(fill="both", expand=True)
 
-        # Верхня панель налаштувань
         cfg_frame = ttk.LabelFrame(root, text="Налаштування")
         cfg_frame.pack(fill="x", **pad)
 
-        # input-dir
         self.input_var = tk.StringVar(value=os.path.abspath("images"))
         ttk.Label(cfg_frame, text="Папка зображень (input-dir):").grid(row=0, column=0, sticky="w", padx=8, pady=6)
         ttk.Entry(cfg_frame, textvariable=self.input_var, width=70).grid(row=0, column=1, sticky="we", padx=8, pady=6)
         ttk.Button(cfg_frame, text="Обрати…", command=self._choose_input).grid(row=0, column=2, padx=8, pady=6)
 
-        # output-dir
         self.output_var = tk.StringVar(value=os.path.abspath("out"))
         ttk.Label(cfg_frame, text="Папка результатів (output-dir):").grid(row=1, column=0, sticky="w", padx=8, pady=6)
         ttk.Entry(cfg_frame, textvariable=self.output_var, width=70).grid(row=1, column=1, sticky="we", padx=8, pady=6)
         ttk.Button(cfg_frame, text="Обрати…", command=self._choose_output).grid(row=1, column=2, padx=8, pady=6)
 
-        # K list
         self.ks_var = tk.StringVar(value="4,8,16,32,64")
         ttk.Label(cfg_frame, text="K (через кому):").grid(row=2, column=0, sticky="w", padx=8, pady=6)
         ttk.Entry(cfg_frame, textvariable=self.ks_var, width=30).grid(row=2, column=1, sticky="w", padx=8, pady=6)
 
-        # Sigma list
         self.sigmas_var = tk.StringVar(value="5,10,15,20,30")
         ttk.Label(cfg_frame, text="Sigma шуму (через кому):").grid(row=3, column=0, sticky="w", padx=8, pady=6)
         ttk.Entry(cfg_frame, textvariable=self.sigmas_var, width=30).grid(row=3, column=1, sticky="w", padx=8, pady=6)
 
-        # seed, sample_pixels
         self.seed_var = tk.StringVar(value="42")
         self.sample_var = tk.StringVar(value="50000")
 
@@ -78,14 +71,12 @@ class App(tk.Tk):
         ttk.Label(row4, text="Пікселів для навчання KMeans (0 = всі):").pack(side="left")
         ttk.Entry(row4, textvariable=self.sample_var, width=10).pack(side="left", padx=6)
 
-        # global plots
         self.global_plots_var = tk.BooleanVar(value=True)
         ttk.Checkbutton(cfg_frame, text="Створити зведені графіки (GLOBAL_PLOTS)", variable=self.global_plots_var)\
             .grid(row=5, column=0, columnspan=3, sticky="w", padx=8, pady=6)
 
         cfg_frame.columnconfigure(1, weight=1)
 
-        # Кнопки керування
         btn_frame = ttk.Frame(root)
         btn_frame.pack(fill="x", **pad)
 
@@ -98,7 +89,6 @@ class App(tk.Tk):
         self.open_out_btn = ttk.Button(btn_frame, text="📂 Відкрити папку результатів", command=self._open_output_dir)
         self.open_out_btn.pack(side="right", padx=6)
 
-        # Прогрес
         prog_frame = ttk.Frame(root)
         prog_frame.pack(fill="x", **pad)
         ttk.Label(prog_frame, text="Статус:").pack(side="left")
@@ -109,7 +99,6 @@ class App(tk.Tk):
         self.pbar = ttk.Progressbar(prog_frame, mode="indeterminate")
         self.pbar.pack(side="right", fill="x", expand=True, padx=8)
 
-        # Лог
         log_frame = ttk.LabelFrame(root, text="Лог виконання")
         log_frame.pack(fill="both", expand=True, **pad)
 
@@ -121,8 +110,6 @@ class App(tk.Tk):
         self.log_text.configure(yscrollcommand=scroll.set)
 
         self._log("Готово. Обери папку зображень та натисни 'Запустити дослідження'.")
-
-    # ---------------- Helpers ----------------
 
     def _choose_input(self):
         p = filedialog.askdirectory(title="Обрати папку зображень (input-dir)")
@@ -153,8 +140,6 @@ class App(tk.Tk):
         self.log_text.insert("end", msg + "\n")
         self.log_text.see("end")
 
-    # ---------------- Thread-safe UI updates ----------------
-
     def _enqueue_log(self, msg: str):
         self.ui_queue.put(("log", msg))
 
@@ -175,8 +160,6 @@ class App(tk.Tk):
         except queue.Empty:
             pass
         self.after(100, self._poll_ui_queue)
-
-    # ---------------- Actions ----------------
 
     def _on_run(self):
         if self.controller.is_running():
@@ -220,6 +203,7 @@ class App(tk.Tk):
         self._log(f"K: {cfg.ks}")
         self._log(f"sigma: {cfg.sigmas}")
         self._log(f"seed: {cfg.seed}, sample_pixels: {cfg.sample_pixels}")
+        self._log(f"GLOBAL_PLOTS: {cfg.make_global_plots}")
         self._log("==============================\n")
 
         self.controller.run_async(

@@ -1,5 +1,5 @@
 === ПІДСУМОК (CLEAN) ===
-Файл: C:\Users\pat_den1ad\PycharmProjects\Petya_diplom\images\lena_color.tiff
+Файл: C:/Users/pat_den1ad/PycharmProjects/Petya_diplom/images\lena_color.tiff
 Розмір: 512x512
 orig_file_bytes: 786572
 orig_png_bytes:  498268

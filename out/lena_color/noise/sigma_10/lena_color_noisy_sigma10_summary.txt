@@ -1,5 +1,5 @@
 === ПІДСУМОК (NOISE sigma=10) ===
-Базовий файл: C:\Users\pat_den1ad\PycharmProjects\Petya_diplom\images\lena_color.tiff
+Базовий файл: C:/Users/pat_den1ad/PycharmProjects/Petya_diplom/images\lena_color.tiff
 Розмір: 512x512
 orig_png_bytes:  498268
 noisy_png_bytes: 605748
